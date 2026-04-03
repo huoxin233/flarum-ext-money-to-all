@@ -16,5 +16,7 @@ clarkwinkelmann-money-to-all:
         settings:
             send: Send money to all users
     forum:
+        history:
+            money-received: Admin distributed rewards
         notification:
             moneyReceived: You have receieved {amount}

@@ -2,7 +2,7 @@
 
 namespace ClarkWinkelmann\MoneyToAll\Controllers;
 
-use AntoineFr\Money\Event\MoneyUpdated;
+use AntoineFr\Money\Service\BalanceManager;
 use Carbon\Carbon;
 use ClarkWinkelmann\MoneyToAll\Notifications\MoneyReceivedBlueprint;
 use ClarkWinkelmann\MoneyToAll\Record;
@@ -10,7 +10,6 @@ use Flarum\Extension\ExtensionManager;
 use Flarum\Http\RequestUtil;
 use Flarum\Notification\NotificationSyncer;
 use Flarum\User\User;
-use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Validation\Factory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
@@ -21,14 +20,14 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 class SendMoney implements RequestHandlerInterface
 {
-    protected $dispatcher;
+    protected $balances;
     protected $notifications;
     protected $validation;
     protected $extensions;
 
-    public function __construct(Dispatcher $dispatcher, NotificationSyncer $notifications, Factory $validation, ExtensionManager $extensions)
+    public function __construct(BalanceManager $balances, NotificationSyncer $notifications, Factory $validation, ExtensionManager $extensions)
     {
-        $this->dispatcher = $dispatcher;
+        $this->balances = $balances;
         $this->notifications = $notifications;
         $this->validation = $validation;
         $this->extensions = $extensions;
@@ -75,14 +74,20 @@ class SendMoney implements RequestHandlerInterface
 
             $recipients = [];
 
-            $query->each(function (User $user) use ($amount, $notify, $message, &$recipients) {
-                $user->money += $amount;
-                $user->save();
-
-                $this->dispatcher->dispatch(new MoneyUpdated($user));
+            $query->orderBy('id')->chunkById(200, function ($users) use ($actor, $amount, $notify, &$recipients): void {
+                $this->balances->adjustBalances(
+                    $users->all(),
+                    $amount,
+                    'MONEY_TO_ALL',
+                    'clarkwinkelmann-money-to-all.forum.history.money-received',
+                    [],
+                    $actor
+                );
 
                 if ($notify) {
-                    $recipients[] = $user;
+                    foreach ($users as $user) {
+                        $recipients[] = $user;
+                    }
                 }
             });
 
